@@ -39,6 +39,8 @@ public class App {
 				new Option("s", "source", true, "File location of Kodi user data for the movies to be copied"));
 		options.addOption(new Option("d", "destination", true, "Directory location where movies will be copied to"));
 		options.addOption(new Option("k", "skipNonIMDB", false, "skip movies that are not found by IMDB.com"));
+		options.addOption(
+				new Option("b", "copyBetter", false, "Copy duplicate movies that are probably better quality"));
 
 		String header = "Use Kodi to help copy movies that are new to you\n\n";
 		String footer = "\nPlease report issues to Matt Daniel";
@@ -64,6 +66,8 @@ public class App {
 		File kodiLibFile = null;
 		File kodiSourceFile = null;
 		File destDir = null;
+		boolean skipNonIMDB = false;
+		boolean copyBetter = false;
 
 		if (line.hasOption('h')) {
 			HelpFormatter formatter = new HelpFormatter();
@@ -80,8 +84,16 @@ public class App {
 			reportOnly = true;
 		}
 
+		if (line.hasOption('k')) {
+			skipNonIMDB = true;
+		}
+
 		if (line.hasOption('c')) {
 			doCopy = true;
+		}
+
+		if (line.hasOption('b')) {
+			copyBetter = true;
 		}
 
 		if (line.hasOption('l')) {
@@ -130,6 +142,8 @@ public class App {
 				destDir = file;
 			}
 
+		} else {
+			//do duplicate report
 		}
 
 		System.out.println("reportOnly " + reportOnly);
@@ -138,10 +152,14 @@ public class App {
 		System.out.println("kodiLibFile " + kodiLibFile.getAbsolutePath());
 		System.out.println("kodiSourceFile " + kodiSourceFile.getAbsolutePath());
 		System.out.println("destDir " + destDir);
+		System.out.println("skipNonIMDB " + skipNonIMDB);
+		System.out.println("copyBetter " + copyBetter);
 
 		Map<String, Movie> sourceMap = new HashMap<>();
 		Map<String, Movie> libraryMap = new HashMap<>();
 		Map<String, Movie> copyMap = new HashMap<>();
+		Map<String, Movie> dupMap = new HashMap<>();
+
 		int duplicateCount = 0;
 		int newMovieCount = 0;
 		int sourceMoviesCount = 0;
@@ -174,17 +192,19 @@ public class App {
 				String year = rs.getString(2);
 				String fileStr = rs.getString(3);
 				String imdbId = rs.getString(4);
-				// System.out.println(title +" ("+year+") - "+imdbId);
-				//
+
 				Movie movie = new Movie();
 				movie.setTitle(title);
 				movie.setYear(Integer.parseInt(year));
 				movie.setFiles(fileStr);
-				if (imdbId != null && imdbId.length() > 0) {
-					sourceMap.put(imdbId, movie);
-				} else {
-					System.out.println("<<< ignoring " + title + " (" + year + ") >>>");
+				if (imdbId == null || imdbId.length() == 0) {
+					if (skipNonIMDB) {
+						System.out.println("<<< ignoring title not found in IMDB " + title + " (" + year + ") >>>");
+						skippedCount++;
+						continue;
+					}
 				}
+				sourceMap.put(movie.getTitle() + movie.getYear(), movie);
 				sourceMoviesCount++;
 			}
 
@@ -206,7 +226,7 @@ public class App {
 			connection = DriverManager.getConnection("jdbc:sqlite:" + kodiLibFile);
 
 			Statement stmt = connection.createStatement();
-			ResultSet rs = stmt.executeQuery("select c00, c07, c09 from movie");
+			ResultSet rs = stmt.executeQuery("select c00 as title, c07 as year, c09 as imdbid from movie");
 			while (rs.next()) {
 				String title = rs.getString(1);
 				String year = rs.getString(2);
@@ -215,12 +235,7 @@ public class App {
 				movie.setTitle(title);
 				movie.setYear(Integer.parseInt(year));
 
-				if (imdbId != null && imdbId.length() > 0) {
-					libraryMap.put(imdbId, movie);
-				} else {
-					System.out.println("<<< ignoring " + title + " (" + year + ") >>>");
-					ignoreCount++;
-				}
+				libraryMap.put(movie.getTitle() + movie.getYear(), movie);
 
 			}
 
@@ -237,9 +252,24 @@ public class App {
 		for (Entry<String, Movie> entry : sourceMap.entrySet()) {
 			if (libraryMap.containsKey(entry.getKey())) {
 				duplicateCount++;
+				dupMap.put(entry.getKey(), entry.getValue());
 			} else {
 				newMovieCount++;
 				copyMap.put(entry.getKey(), entry.getValue());
+			}
+		}
+
+		if (copyBetter) {
+			dupLoop: for (Entry<String, Movie> entry : dupMap.entrySet()) {
+				Movie srcMovie = entry.getValue();
+				Movie libMovie = libraryMap.get(entry.getKey());
+				if (libMovie == null) {
+					continue dupLoop;
+				}
+				if (srcMovie.getSizeInBytes() > libMovie.getSizeInBytes()) {
+					copyMap.put(entry.getKey(), entry.getValue());
+					System.out.println("Duplicate movie of larger file size to be copied "+srcMovie);
+				}
 			}
 		}
 
@@ -248,14 +278,13 @@ public class App {
 			Movie movie = entry.getValue();
 			int ndx = 1;
 
-			fileLoop:
-			for (File srcFile : movie.getFiles()) {
+			fileLoop: for (File srcFile : movie.getFiles()) {
 				/*
 				 * last bit is the file extension and file number identifier if
 				 * multiple
 				 */
 				if (srcFile.isDirectory()) {
-					
+
 					if (copyDvds) {
 						File destSubDir = new File(destDir, srcFile.getName());
 						try {
@@ -273,14 +302,14 @@ public class App {
 					continue movieLoop;
 
 				} else {
-//					System.out.println("NOT DIR "+srcFile);
+					// System.out.println("NOT DIR "+srcFile);
 				}
 
 				String lastBit = "";
 				try {
 					lastBit = srcFile.getName().substring(srcFile.getName().lastIndexOf(".")).toLowerCase();
 				} catch (Exception e) {
-					System.out.println("couldn't determine lastbit for "+srcFile.getName());
+					System.out.println("couldn't determine lastbit for " + srcFile.getName());
 				}
 				if (movie.getFiles().size() > 1) {
 					lastBit = " - CD" + ndx + lastBit;
@@ -292,11 +321,11 @@ public class App {
 					title.replaceAll(":", ",");
 					File destFile = new File(destDir, title + " (" + movie.getYear() + ")" + lastBit);
 					System.out.println("copy " + srcFile.getAbsolutePath() + " to " + destFile.getAbsolutePath());
-					
+
 					if (destFile.exists()) {
 						continue fileLoop;
 					}
-					
+
 					boolean copied = false;
 					int retries = 2;
 					while (!copied && retries > 0 && doCopy && !reportOnly) {
@@ -310,13 +339,13 @@ public class App {
 							break;
 
 						} catch (IOException io) {
-							System.out.println("IO problem. "+(retries - 1)  +" retries left.");
+							System.out.println("IO problem. " + (retries - 1) + " retries left.");
 						}
-						
+
 						retries--;
 
 					}
-					
+
 					if (!copied && !reportOnly) {
 						System.out.println(
 								"<<<FAILED>>> copy " + srcFile.getAbsolutePath() + " to " + destFile.getAbsolutePath());
