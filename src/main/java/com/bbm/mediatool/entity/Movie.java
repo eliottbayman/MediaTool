@@ -15,6 +15,8 @@ public class Movie {
 	private String released;
 
 	private String runtime;
+	
+	private String imdbId;
 
 	private List<File> files = new ArrayList<>();
 
@@ -86,9 +88,16 @@ public class Movie {
 			while (i >= 0) {
 				i = buf.toString().indexOf(" , /");
 				if (i == -1) {
+//					System.out.println("Unhandled :"+fileStr);
+//					return;
+					i = buf.toString().indexOf(" , smb://");
+				} 
+				
+				if (i == -1) {
 					System.out.println("Unhandled :"+fileStr);
 					return;
-				} 
+				}
+				
 				String s = buf.toString().substring(0, i).trim();
 				if (s.startsWith("stack:")) {
 					s = s.substring(6);
@@ -120,6 +129,16 @@ public class Movie {
 		} else {
 			files.add(new File(fileStr));
 		}
+	}
+	
+	
+
+	public String getImdbId() {
+		return imdbId;
+	}
+
+	public void setImdbId(String imdbId) {
+		this.imdbId = imdbId;
 	}
 
 	@Override

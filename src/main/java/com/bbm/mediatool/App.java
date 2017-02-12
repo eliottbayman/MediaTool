@@ -144,6 +144,9 @@ public class App {
 
 		} else {
 			//do duplicate report
+			System.out.println("---------Performing Dupe Report---------");
+			new DupeReport().report(kodiLibFile);
+			return;
 		}
 
 		System.out.println("reportOnly " + reportOnly);
