@@ -1,13 +1,1 @@
-.settings/
-.classpath
 /target/
-/bin/
-.project
-.launch
-*.jar
-*.war
-*.ear
-*.class
-.metadata
-local.properties
-*DS_Store
