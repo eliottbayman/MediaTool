@@ -233,6 +233,7 @@ public class App {
 			while (rs.next()) {
 				String title = rs.getString(1);
 				String year = rs.getString(2);
+				@SuppressWarnings("unused")
 				String imdbId = rs.getString(3);
 				Movie movie = new Movie();
 				movie.setTitle(title);
